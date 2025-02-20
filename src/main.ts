@@ -3,6 +3,14 @@ import { CommonModule } from '@angular/common';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { PDFDocument } from 'pdf-lib';
 
+interface PosicaoElemento {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+// Interface para documento
 interface DocumentItem {
   id: string;
   file: File;
@@ -11,6 +19,7 @@ interface DocumentItem {
   groupId?: string;
 }
 
+// Interface para seleção por arrasto
 interface DragSelection {
   startX: number;
   startY: number;
@@ -164,7 +173,7 @@ export class App implements OnInit, AfterViewInit, OnDestroy {
     this.dragSelection.currentX = event.clientX;
     this.dragSelection.currentY = event.clientY;
 
-    const selectionBox = {
+    const caixaSelecao: PosicaoElemento = {
       left: Math.min(this.dragSelection.startX, this.dragSelection.currentX),
       top: Math.min(this.dragSelection.startY, this.dragSelection.currentY),
       right: Math.max(this.dragSelection.startX, this.dragSelection.currentX),
@@ -173,33 +182,62 @@ export class App implements OnInit, AfterViewInit, OnDestroy {
 
     // Usando ViewChildren para acessar os elementos
     this.documentItems.forEach((elementRef, index) => {
-      const element = elementRef.nativeElement;
-      const rect = element.getBoundingClientRect();
-      const isIntersecting = !(
-        rect.right < selectionBox.left ||
-        rect.left > selectionBox.right ||
-        rect.bottom < selectionBox.top ||
-        rect.top > selectionBox.bottom
-      );
+      const documento = this.documents[index];
+      if (!documento) return;
 
-      if (this.documents[index]) {
-        // Se Ctrl estiver pressionado, mantém a seleção anterior
-        if (event.ctrlKey) {
-          // Se o item está na área de seleção, adiciona à seleção
-          if (isIntersecting) {
-            this.documents[index].selected = true;
-          }
-          // Se não está na área, mantém o estado anterior
-        } else {
-          // Se Ctrl não estiver pressionado, define o estado baseado apenas na interseção
-          this.documents[index].selected = isIntersecting;
-        }
-        console.log('Item', index, 'selecionado:', this.documents[index].selected);
-      }
+      const elemento = elementRef.nativeElement;
+      const posicaoElemento: PosicaoElemento = elemento.getBoundingClientRect();
+      const estaNaSelecao = this.isElementoNaAreaSelecao(posicaoElemento, caixaSelecao);
+      
+      documento.selected = this.determinaEstadoSelecao(
+        documento.selected,
+        estaNaSelecao,
+        event.ctrlKey
+      );
+      
+      console.log('Item', index, 'selecionado:', documento.selected);
     });
 
     const itensSelecionados = this.documents.filter(doc => doc.selected);
     console.log('Itens selecionados explorer select:', itensSelecionados);
+  }
+
+  /**
+   * Verifica se um elemento está dentro ou intersecta com a área de seleção
+   * 
+   * Exemplo visual:
+   * 
+   *    Caso 1: Elemento fora          Caso 2: Elemento na seleção
+   *    ┌─────┐   ┌─────┐                  ┌─────┐
+   *    │  A  │   │  B  │                  │  A  │
+   *    └─────┘   └─────┘                  └──┬──┘
+   *                                          │
+   *                                       ┌──┼──┐
+   *                                       │  B  │
+   *                                       └─────┘
+   * 
+   * @returns true se o elemento está dentro ou intersecta a área de seleção
+   */
+  private isElementoNaAreaSelecao(elemento: PosicaoElemento, posicaoCaixaSelecao: PosicaoElemento): boolean {
+    // Verifica se o elemento está completamente fora da área de seleção
+    const elementoEstaFora = 
+      elemento.right < posicaoCaixaSelecao.left ||    // Elemento está totalmente à esquerda
+      elemento.left > posicaoCaixaSelecao.right ||    // Elemento está totalmente à direita
+      elemento.bottom < posicaoCaixaSelecao.top ||    // Elemento está totalmente acima
+      elemento.top > posicaoCaixaSelecao.bottom;      // Elemento está totalmente abaixo
+
+    // Se não está fora, então está dentro ou intersectando
+    return !elementoEstaFora;
+  }
+
+  private determinaEstadoSelecao(elementoSelecionadoAtualmente: boolean, elementoEstaAreaSelecao: boolean, ctrlPressionado: boolean): boolean {
+    // Com Ctrl pressionado: mantém seleção atual e adiciona novos elementos na área
+    if (ctrlPressionado) {
+      return elementoSelecionadoAtualmente || elementoEstaAreaSelecao;
+    }
+    
+    // Sem Ctrl: estado é determinado apenas pela posição do elemento
+    return elementoEstaAreaSelecao;
   }
 
   endDragSelection() {
