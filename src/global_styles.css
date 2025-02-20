@@ -1,10 +1,10 @@
 /* Add application styles & imports to this file! */
 .document-container {
-  padding: 20px;
+  padding: 40px; /* seleção dos documentos só ficam disponivel dentro do container do padding */
+  border: solid;
   max-width: 1200px;
   margin: 0 auto;
   position: relative;
-  user-select: none;
   min-height: 100vh;
 }
 
@@ -26,6 +26,7 @@
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 20px;
   margin-top: 20px;
+  user-select: none; /* não permite seleção de texto dentro do container */
 }
 
 .document-item {
