@@ -1,7 +1,7 @@
-import { Component, OnInit, ViewChildren, QueryList, ElementRef, AfterViewInit, Renderer2, OnDestroy } from '@angular/core';
+import { Component, OnInit, ViewChildren, QueryList, ElementRef, AfterViewInit, OnDestroy, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { bootstrapApplication } from '@angular/platform-browser';
-import { PDFDocument } from 'pdf-lib';
+import { FileProcessingService } from './app/file-processing.service';
 
 interface PosicaoElemento {
   left: number;
@@ -68,7 +68,7 @@ interface DragSelection {
       </div>
 
       <div class="documents-grid">
-        <div #documentItem *ngFor="let doc of documents" 
+        <div #documentItems *ngFor="let doc of documents" 
              class="document-item"
              [class.selected]="doc.selected"
              (click)="toggleSelection($event, doc)">
@@ -93,9 +93,8 @@ interface DragSelection {
   `
 })
 export class App implements OnInit, AfterViewInit, OnDestroy {
-  @ViewChildren('documentItem') documentItems!: QueryList<ElementRef>;
-  private documentClickListener: (() => void) | undefined;
-  private documentMouseUpListener: (() => void) | undefined;
+  @ViewChildren('documentItems') documentItems!: QueryList<ElementRef>;
+
   documents: DocumentItem[] = [];
   dragSelection: DragSelection = {
     startX: 0,
@@ -105,33 +104,14 @@ export class App implements OnInit, AfterViewInit, OnDestroy {
     isDragging: false
   };
   
-  constructor(private renderer: Renderer2) {}
+  constructor(private fileProcessingService: FileProcessingService) {}
   
   ngOnInit() {
-    // Usando Renderer2 para lidar com cliques globais
-    this.documentClickListener = this.renderer.listen('document', 'click', (event: Event) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.document-container')) {
-        this.clearSelection();
-      }
-    });
-
-    // Adicionando listener global para mouseup
-    this.documentMouseUpListener = this.renderer.listen('document', 'mouseup', () => {
-      if (this.dragSelection.isDragging) {
-        this.endDragSelection();
-      }
-    });
+    // Remover listeners globais
   }
 
   ngOnDestroy() {
-    // Limpando os listeners quando o componente for destruído
-    if (this.documentClickListener) {
-      this.documentClickListener();
-    }
-    if (this.documentMouseUpListener) {
-      this.documentMouseUpListener();
-    }
+    // Remover listeners globais
   }
 
   ngAfterViewInit() {
@@ -139,6 +119,21 @@ export class App implements OnInit, AfterViewInit, OnDestroy {
     this.documentItems.changes.subscribe(() => {
       console.log('DocumentItems atualizados');
     });
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: Event) {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.document-container')) { // A função verifica se o elemento clicado (target) não está dentro do contêiner de documentos (.document-container).
+      this.clearSelection(); // Se o clique ocorrer fora do contêiner, a função clearSelection() é chamada, que provavelmente limpa a seleção atual de documentos. Isso é útil para garantir que a seleção de documentos seja desfeita quando o usuário clica fora da área de seleção.
+    }
+  }
+
+  @HostListener('document:mouseup')
+  onDocumentMouseUp() {
+    if (this.dragSelection.isDragging) {
+      this.endDragSelection();
+    }
   }
 
   startDragSelection(event: MouseEvent) {
@@ -260,10 +255,11 @@ export class App implements OnInit, AfterViewInit, OnDestroy {
     return Math.abs(this.dragSelection.currentY - this.dragSelection.startY);
   }
 
-  onFileSelected(event: Event) {
+  async onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files) {
-      this.processFiles(Array.from(input.files));
+      const newDocuments = await this.fileProcessingService.processFiles(Array.from(input.files));
+      this.documents.push(...newDocuments);
     }
   }
 
@@ -272,75 +268,14 @@ export class App implements OnInit, AfterViewInit, OnDestroy {
     event.stopPropagation();
   }
 
-  onDrop(event: DragEvent) {
+  async onDrop(event: DragEvent) {
     event.preventDefault();
     event.stopPropagation();
     
     const files = event.dataTransfer?.files;
     if (files) {
-      this.processFiles(Array.from(files));
-    }
-  }
-
-  async processFiles(files: File[]) {
-    for (const file of files) {
-      if (this.isValidFileType(file)) {
-        await this.createDocumentItem(file);
-      }
-    }
-  }
-
-  isValidFileType(file: File): boolean {
-    const validTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-    return validTypes.includes(file.type);
-  }
-
-  async createDocumentItem(file: File) {
-    if (file.type === 'application/pdf') {
-      const preview = await this.generatePdfThumbnail(file);
-      this.documents.push({
-        id: Math.random().toString(36).substr(2, 9),
-        file: file,
-        preview: preview,
-        selected: false
-      });
-    } else {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        this.documents.push({
-          id: Math.random().toString(36).substr(2, 9),
-          file: file,
-          preview: e.target?.result as string,
-          selected: false
-        });
-      };
-      reader.readAsDataURL(file);
-    }
-  }
-
-  async generatePdfThumbnail(file: File): Promise<string> {
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer);
-      
-      if (pdfDoc.getPageCount() === 0) {
-        throw new Error('PDF has no pages');
-      }
-
-      const firstPage = pdfDoc.getPages()[0];
-      const { width, height } = firstPage.getSize();
-      
-      // Create a new document for the thumbnail
-      const thumbnailDoc = await PDFDocument.create();
-      const [thumbnailPage] = await thumbnailDoc.copyPages(pdfDoc, [0]);
-      thumbnailDoc.addPage(thumbnailPage);
-
-      // Convert to PNG-like format
-      const pdfBytes = await thumbnailDoc.saveAsBase64({ dataUri: true });
-      return pdfBytes;
-    } catch (error) {
-      console.error('Error generating PDF thumbnail:', error);
-      return 'assets/pdf-icon.png'; // Fallback to default icon
+      const newDocuments = await this.fileProcessingService.processFiles(Array.from(files));
+      this.documents.push(...newDocuments);
     }
   }
 
